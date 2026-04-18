@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "react-generator",
+      "runtimeExecutable": "/usr/local/bin/npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5173"],
+      "cwd": "/Users/imac/Desktop/Atestat 2026 v6/react-generator",
+      "port": 5173
+    }
+  ]
+}

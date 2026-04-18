@@ -1,5 +1,0 @@
-streamlit
-reportlab
-openpyxl
-pandas
-pdf2image
