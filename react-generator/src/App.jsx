@@ -1444,6 +1444,13 @@ export default function App() {
                 </>
               )}
 
+              <a
+                href="/__auth/logout"
+                className="w-full py-2 rounded-xl text-xs border border-indigo-500/20 text-indigo-300 hover:bg-indigo-500/15 transition-all cursor-pointer text-center"
+              >
+                Выйти
+              </a>
+
               <div className="mt-auto text-center text-[10px] text-indigo-500/30 tracking-widest">✦ УГТК ✦</div>
             </div>
           )}
