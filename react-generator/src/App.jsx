@@ -39,6 +39,16 @@ const clonePositionOffsets = () => ({
   ru: { ...DEFAULT_POSITION_OFFSETS.ru },
 })
 
+const DEFAULT_MODULE_OFFSETS = {
+  kz: { page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0 },
+  ru: { page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0 },
+}
+
+const cloneModuleOffsets = () => ({
+  kz: { ...DEFAULT_MODULE_OFFSETS.kz },
+  ru: { ...DEFAULT_MODULE_OFFSETS.ru },
+})
+
 // ─────────────────────────────────────────────
 // УТИЛИТЫ ОЦЕНОК
 // ─────────────────────────────────────────────
@@ -220,12 +230,12 @@ function wrapText(text, maxChars = 28) {
 // ─────────────────────────────────────────────
 // LAYOUT CALCULATOR — mirrors _draw_grades
 // ─────────────────────────────────────────────
-function calculateLayout(student, lang) {
+function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) {
   const areas = [
-    { page: 1, x: 24,  yStart: 280 + 3*MM, yLimit: 20 },
-    { page: 1, x: 448, yStart: 563 + 3*MM, yLimit: 20 },
-    { page: 2, x: 21  + 1*MM, yStart: 565 + 3*MM, yLimit: 20 },
-    { page: 2, x: 448 + 1*MM, yStart: 565 + 3*MM, yLimit: 20 },
+    { page: 1, x: 24,  yStart: 280 + 3*MM, yLimit: 20, offsetKey: 'page1Left' },
+    { page: 1, x: 448, yStart: 563 + 3*MM, yLimit: 20, offsetKey: 'page1Right' },
+    { page: 2, x: 21  + 1*MM, yStart: 565 + 3*MM, yLimit: 20, offsetKey: 'page2Left' },
+    { page: 2, x: 448 + 1*MM, yStart: 565 + 3*MM, yLimit: 20, offsetKey: 'page2Right' },
   ]
   if (lang === 'ru') {
     areas[0].yStart -= 3.5 * MM; areas[1].yStart -= 1 * MM
@@ -238,6 +248,7 @@ function calculateLayout(student, lang) {
 
   let ai = 0, curY = areas[0].yStart, rowNum = 1, prevModule = null
   const items = []
+  const areaYOff = (area) => (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
 
   for (const subj of student.subjects_list) {
     const module = (subj.module || '').trim()
@@ -249,7 +260,7 @@ function calculateLayout(student, lang) {
         if (++ai >= areas.length) break
         curY = areas[ai].yStart
       }
-      items.push({ type: 'header', page: areas[ai].page, x: areas[ai].x, y: curY, lines: hLines })
+      items.push({ type: 'header', page: areas[ai].page, x: areas[ai].x, y: curY + areaYOff(areas[ai]), lines: hLines })
       curY -= hHeight
       prevModule = module
     }
@@ -271,7 +282,7 @@ function calculateLayout(student, lang) {
     const passLabel = lang === 'ru' ? 'зачтено' : 'сыналды'
 
     items.push({
-      type: 'subject', page: area.page, x: area.x, y: curY,
+      type: 'subject', page: area.page, x: area.x, y: curY + areaYOff(area),
       rowNum, lines, hoursStr, credits, scoreStr, isPass, passLabel,
       letter: subj.letter || '', point: subj.point || '', trad,
       hoursOffX:   area.page === 2 ? 171.3 : 165.6,
@@ -711,6 +722,7 @@ function FieldPositionControls({ positionOffsets, setPositionOffsets }) {
                 value={value}
                 aria-label={`${title} ${sectionTitle} ${label}`}
                 onChange={e => update(docLang, key, e.target.value)}
+                onDoubleClick={() => update(docLang, key, 0)}
                 className="w-full accent-indigo-400"
               />
             </label>
@@ -727,7 +739,7 @@ function FieldPositionControls({ positionOffsets, setPositionOffsets }) {
         ['x', 'Положение полей вправо/влево'],
       ].map(([axis, blockTitle]) => (
         <GlassCard key={axis}>
-          <details className="group" open>
+          <details className="group">
             <summary className="cursor-pointer text-sm text-indigo-300 font-medium py-1 select-none list-none flex items-center gap-2">
               <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
               {blockTitle}
@@ -759,10 +771,98 @@ function FieldPositionControls({ positionOffsets, setPositionOffsets }) {
   )
 }
 
+function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
+  const moduleAreas = [
+    ['page1Left', '1-я страница, левая половина'],
+    ['page1Right', '1-я страница, правая половина'],
+    ['page2Left', '2-я страница, левая половина'],
+    ['page2Right', '2-я страница, правая половина'],
+  ]
+
+  const update = (docLang, fieldKey, val) => {
+    const nextVal = Number(val)
+    setModuleOffsets(prev => ({
+      ...prev,
+      [docLang]: { ...prev[docLang], [fieldKey]: nextVal },
+    }))
+  }
+
+  const resetLang = (docLang) => {
+    setModuleOffsets(prev => ({
+      ...prev,
+      [docLang]: { ...DEFAULT_MODULE_OFFSETS[docLang] },
+    }))
+  }
+
+  const renderValue = (val) => {
+    if (!val) return '0 мм'
+    const abs = Math.abs(val).toFixed(1).replace('.0', '')
+    return `${val > 0 ? '↑' : '↓'} ${abs} мм`
+  }
+
+  const renderSliders = (docLang, title) => (
+    <div className="space-y-3">
+      {moduleAreas.map(([fieldKey, label]) => {
+        const value = moduleOffsets[docLang]?.[fieldKey] ?? 0
+        return (
+          <label key={fieldKey} className="block">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <span className="text-xs text-slate-300">{label}</span>
+              <span className="text-[11px] text-indigo-300 tabular-nums shrink-0">{renderValue(value)}</span>
+            </div>
+            <input
+              type="range"
+              min="-8"
+              max="8"
+              step="0.1"
+              value={value}
+              aria-label={`${title} ${label} вверх / вниз`}
+              onChange={e => update(docLang, fieldKey, e.target.value)}
+              onDoubleClick={() => update(docLang, fieldKey, 0)}
+              className="w-full accent-indigo-400"
+            />
+          </label>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <GlassCard>
+      <details className="group">
+        <summary className="cursor-pointer text-sm text-indigo-300 font-medium py-1 select-none list-none flex items-center gap-2">
+          <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
+          Положение модулей и предметов вверх/вниз
+        </summary>
+        <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-5">
+          {[
+            ['kz', 'Қазақша'],
+            ['ru', 'Русская'],
+          ].map(([docLang, title]) => (
+            <section key={docLang} className="min-w-0">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h4>
+                <button
+                  type="button"
+                  onClick={() => resetLang(docLang)}
+                  className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
+                >
+                  Сбросить
+                </button>
+              </div>
+              {renderSliders(docLang, title)}
+            </section>
+          ))}
+        </div>
+      </details>
+    </GlassCard>
+  )
+}
+
 // ─────────────────────────────────────────────
 // TAB: EDITOR
 // ─────────────────────────────────────────────
-function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets }) {
+function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets, moduleOffsets, setModuleOffsets }) {
   const [selIdx, setSelIdx] = useState(0)
   const s = students[selIdx] || {}
 
@@ -806,7 +906,7 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
 
   const INPUT = 'bg-slate-900 border border-indigo-500/20 text-slate-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:border-indigo-400'
 
-  const items = calculateLayout(s, lang)
+  const items = calculateLayout(s, lang, moduleOffsets)
   const tmpls = lang === 'ru'
     ? ['/data/template_ru_fixed.jpg', '/data/template_ru_2_fixed.jpg']
     : ['/data/template_kz.jpg',       '/data/template_kz_2.jpg']
@@ -922,6 +1022,11 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
           setPositionOffsets={setPositionOffsets}
         />
 
+        <ModulePositionControls
+          moduleOffsets={moduleOffsets}
+          setModuleOffsets={setModuleOffsets}
+        />
+
         <GlassCard>
           <h4 className="text-indigo-300 font-semibold text-sm mb-3">
             Предметы ({(s.subjects_list || []).length})
@@ -1015,14 +1120,14 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
 // ─────────────────────────────────────────────
 // TAB: GENERATE
 // ─────────────────────────────────────────────
-function TabGenerate({ students, lang, positionOffsets }) {
+function TabGenerate({ students, lang, positionOffsets, moduleOffsets }) {
   const [selIdx, setSelIdx]     = useState(0)
   const [status, setStatus]     = useState('')
   const [progress, setProgress] = useState(0)
   const [busy, setBusy]         = useState(false)
 
   const student = students[selIdx] || {}
-  const items   = students.length ? calculateLayout(student, lang) : []
+  const items   = students.length ? calculateLayout(student, lang, moduleOffsets) : []
   const tmpls   = lang === 'ru'
     ? ['/data/template_ru_fixed.jpg', '/data/template_ru_2_fixed.jpg']
     : ['/data/template_kz.jpg',       '/data/template_kz_2.jpg']
@@ -1081,7 +1186,7 @@ function TabGenerate({ students, lang, positionOffsets }) {
       setProgress(Math.round((i / students.length) * 100))
 
       const s   = students[i]
-      const it  = calculateLayout(s, lang)
+      const it  = calculateLayout(s, lang, moduleOffsets)
 
       // Render off-screen at full A4 size
       const container = document.createElement('div')
@@ -1210,6 +1315,7 @@ export default function App() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
   const [positionOffsets, setPositionOffsets] = useState(clonePositionOffsets)
+  const [moduleOffsets, setModuleOffsets] = useState(cloneModuleOffsets)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
@@ -1413,6 +1519,8 @@ export default function App() {
                     lang={lang}
                     positionOffsets={positionOffsets}
                     setPositionOffsets={setPositionOffsets}
+                    moduleOffsets={moduleOffsets}
+                    setModuleOffsets={setModuleOffsets}
                   />
                 )}
                 {tab === 'generate' && (
@@ -1420,6 +1528,7 @@ export default function App() {
                     students={students}
                     lang={lang}
                     positionOffsets={positionOffsets}
+                    moduleOffsets={moduleOffsets}
                   />
                 )}
               </>
