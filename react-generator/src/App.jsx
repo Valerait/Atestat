@@ -17,6 +17,28 @@ const PAGE_H = 595.28   // pt — A4 Landscape высота
 const MM     = 2.835432 // 1 мм в pt
 const LS     = 12       // line-spacing pt (grades)
 
+const POSITION_FIELDS = [
+  ['doc', '№ документа'],
+  ['name', 'ФИО'],
+  ['years', 'Годы обучения'],
+  ['institution', 'Учреждение'],
+  ['specialty', 'Специальность'],
+  ['qualification', 'Квалификация'],
+]
+
+const createPositionOffsetSet = () =>
+  Object.fromEntries(POSITION_FIELDS.flatMap(([key]) => [[key, 0], [`${key}_x`, 0]]))
+
+const DEFAULT_POSITION_OFFSETS = {
+  kz: createPositionOffsetSet(),
+  ru: createPositionOffsetSet(),
+}
+
+const clonePositionOffsets = () => ({
+  kz: { ...DEFAULT_POSITION_OFFSETS.kz },
+  ru: { ...DEFAULT_POSITION_OFFSETS.ru },
+})
+
 // ─────────────────────────────────────────────
 // УТИЛИТЫ ОЦЕНОК
 // ─────────────────────────────────────────────
@@ -267,7 +289,7 @@ function calculateLayout(student, lang) {
 // ─────────────────────────────────────────────
 // PAGE 1 LAYOUT — mirrors _page1_layout
 // ─────────────────────────────────────────────
-function getPage1Layout(lang, forPdf = false) {
+function getPage1Layout(lang, forPdf = false, positionOffsets = DEFAULT_POSITION_OFFSETS) {
   const extra = forPdf ? 2*MM : 0
   const l = {
     name_x: 103.58,   name_y: 512.18 + 3*MM + extra,
@@ -284,6 +306,11 @@ function getPage1Layout(lang, forPdf = false) {
     l.sy     -= 1*MM; l.ey     -= 1*MM
     l.inst_y -= 2*MM; l.spec_y -= 1*MM
     l.qual_y -= 1*MM; l.qual2_y -= 2*MM
+    l.name_y += 0.5*MM
+    l.doc_y  += 0.5*MM
+    l.sy     += 0.5*MM; l.ey     += 0.5*MM
+    l.inst_y += 0.5*MM; l.spec_y += 0.5*MM
+    l.qual_y += 0.5*MM; l.qual2_y += 0.5*MM
   }
   if (lang === 'ru') {
     l.doc_x  += 13*MM; l.doc_y  -= 1*MM
@@ -293,6 +320,25 @@ function getPage1Layout(lang, forPdf = false) {
     l.inst_y -= 4*MM;  l.spec_y -= 3*MM
     l.qual_y -= 3*MM
   }
+  l.doc_x  += 8*MM
+  l.name_x += 8*MM
+  const offsets = positionOffsets[lang] || DEFAULT_POSITION_OFFSETS[lang]
+  l.doc_y  += (offsets.doc || 0) * MM
+  l.name_y += (offsets.name || 0) * MM
+  l.sy     += (offsets.years || 0) * MM
+  l.ey     += (offsets.years || 0) * MM
+  l.inst_y += (offsets.institution || 0) * MM
+  l.spec_y += (offsets.specialty || 0) * MM
+  l.qual_y += (offsets.qualification || 0) * MM
+  l.qual2_y += (offsets.qualification || 0) * MM
+  l.doc_x  += (offsets.doc_x || 0) * MM
+  l.name_x += (offsets.name_x || 0) * MM
+  l.sx     += (offsets.years_x || 0) * MM
+  l.ex     += (offsets.years_x || 0) * MM
+  l.inst_x += (offsets.institution_x || 0) * MM
+  l.spec_x += (offsets.specialty_x || 0) * MM
+  l.qual_x += (offsets.qualification_x || 0) * MM
+  l.qual2_x += (offsets.qualification_x || 0) * MM
   return l
 }
 
@@ -313,8 +359,8 @@ function splitCentered(text, threshold = 55) {
 // ATTESTAT PAGE — renders one A4 landscape page
 // Positions faithfully mirror pdf_generator.py
 // ─────────────────────────────────────────────
-function AttestatPage({ student, pageNum, lang, template, items, noTemplate = false }) {
-  const l  = getPage1Layout(lang, noTemplate)
+function AttestatPage({ student, pageNum, lang, template, items, noTemplate = false, positionOffsets = DEFAULT_POSITION_OFFSETS }) {
+  const l  = getPage1Layout(lang, noTemplate, positionOffsets)
   const FS = 8    // font-size pt for grades
 
   // Resolve display texts
@@ -615,10 +661,108 @@ function Btn({ children, onClick, primary, className = '', disabled }) {
   return <button onClick={onClick} className={`${base} ${v} ${className}`} disabled={disabled}>{children}</button>
 }
 
+function FieldPositionControls({ positionOffsets, setPositionOffsets }) {
+  const update = (docLang, field, val) => {
+    const nextVal = Number(val)
+    setPositionOffsets(prev => ({
+      ...prev,
+      [docLang]: { ...prev[docLang], [field]: nextVal },
+    }))
+  }
+
+  const resetLang = (docLang, axis) => {
+    const isHorizontal = axis === 'x'
+    setPositionOffsets(prev => {
+      const nextLang = { ...prev[docLang] }
+      for (const [field] of POSITION_FIELDS) {
+        const key = isHorizontal ? `${field}_x` : field
+        nextLang[key] = DEFAULT_POSITION_OFFSETS[docLang][key]
+      }
+      return { ...prev, [docLang]: nextLang }
+    })
+  }
+
+  const renderValue = (val, axis = 'y') => {
+    if (!val) return '0 мм'
+    const abs = Math.abs(val).toFixed(1).replace('.0', '')
+    if (axis === 'x') return `${val > 0 ? '→' : '←'} ${abs} мм`
+    return `${val > 0 ? '↑' : '↓'} ${abs} мм`
+  }
+
+  const renderSliders = (docLang, title, axis) => {
+    const isHorizontal = axis === 'x'
+    const sectionTitle = isHorizontal ? 'Вправо / влево' : 'Вверх / вниз'
+    return (
+      <div className="space-y-3">
+        {POSITION_FIELDS.map(([field, label]) => {
+          const key = isHorizontal ? `${field}_x` : field
+          const value = positionOffsets[docLang]?.[key] ?? 0
+          return (
+            <label key={key} className="block">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="text-xs text-slate-300">{label}</span>
+                <span className="text-[11px] text-indigo-300 tabular-nums shrink-0">{renderValue(value, axis)}</span>
+              </div>
+              <input
+                type="range"
+                min="-8"
+                max="8"
+                step="0.1"
+                value={value}
+                aria-label={`${title} ${sectionTitle} ${label}`}
+                onChange={e => update(docLang, key, e.target.value)}
+                className="w-full accent-indigo-400"
+              />
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {[
+        ['y', 'Положение полей вверх/вниз'],
+        ['x', 'Положение полей вправо/влево'],
+      ].map(([axis, blockTitle]) => (
+        <GlassCard key={axis}>
+          <details className="group" open>
+            <summary className="cursor-pointer text-sm text-indigo-300 font-medium py-1 select-none list-none flex items-center gap-2">
+              <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
+              {blockTitle}
+            </summary>
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-5">
+              {[
+                ['kz', 'Қазақша'],
+                ['ru', 'Русская'],
+              ].map(([docLang, title]) => (
+                <section key={docLang} className="min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h4>
+                    <button
+                      type="button"
+                      onClick={() => resetLang(docLang, axis)}
+                      className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
+                    >
+                      Сбросить
+                    </button>
+                  </div>
+                  {renderSliders(docLang, title, axis)}
+                </section>
+              ))}
+            </div>
+          </details>
+        </GlassCard>
+      ))}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────
 // TAB: EDITOR
 // ─────────────────────────────────────────────
-function TabEditor({ students, setStudents, lang }) {
+function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets }) {
   const [selIdx, setSelIdx] = useState(0)
   const s = students[selIdx] || {}
 
@@ -683,8 +827,8 @@ function TabEditor({ students, setStudents, lang }) {
       await new Promise(res => {
         root.render(
           <div>
-            <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate />
-            <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate />
+            <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate positionOffsets={positionOffsets} />
+            <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate positionOffsets={positionOffsets} />
           </div>
         )
         // Short settle — no images (noTemplate), just React layout
@@ -773,6 +917,11 @@ function TabEditor({ students, setStudents, lang }) {
           </details>
         </GlassCard>
 
+        <FieldPositionControls
+          positionOffsets={positionOffsets}
+          setPositionOffsets={setPositionOffsets}
+        />
+
         <GlassCard>
           <h4 className="text-indigo-300 font-semibold text-sm mb-3">
             Предметы ({(s.subjects_list || []).length})
@@ -842,8 +991,8 @@ function TabEditor({ students, setStudents, lang }) {
                 flexDirection: 'column',
                 gap: '10pt',
               }}>
-                <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={items} />
-                <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={items} />
+                <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={items} positionOffsets={positionOffsets} />
+                <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={items} positionOffsets={positionOffsets} />
               </div>
             </div>
           </div>
@@ -866,7 +1015,7 @@ function TabEditor({ students, setStudents, lang }) {
 // ─────────────────────────────────────────────
 // TAB: GENERATE
 // ─────────────────────────────────────────────
-function TabGenerate({ students, lang }) {
+function TabGenerate({ students, lang, positionOffsets }) {
   const [selIdx, setSelIdx]     = useState(0)
   const [status, setStatus]     = useState('')
   const [progress, setProgress] = useState(0)
@@ -890,8 +1039,8 @@ function TabGenerate({ students, lang }) {
       await new Promise(res => {
         root.render(
           <div>
-            <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate />
-            <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate />
+            <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate positionOffsets={positionOffsets} />
+            <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate positionOffsets={positionOffsets} />
           </div>
         )
         setTimeout(res, 150)
@@ -943,8 +1092,8 @@ function TabGenerate({ students, lang }) {
       await new Promise(res => {
         root.render(
           <div>
-            <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={it} noTemplate />
-            <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={it} noTemplate />
+            <AttestatPage student={s} pageNum={1} lang={lang} template={tmpls[0]} items={it} noTemplate positionOffsets={positionOffsets} />
+            <AttestatPage student={s} pageNum={2} lang={lang} template={tmpls[1]} items={it} noTemplate positionOffsets={positionOffsets} />
           </div>
         )
         // No images to wait for (noTemplate), short settle time
@@ -1036,16 +1185,16 @@ function TabGenerate({ students, lang }) {
             flexDirection: 'column',
             gap: '10pt',
           }}>
-            <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} />
-            <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} />
+            <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} positionOffsets={positionOffsets} />
+            <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} positionOffsets={positionOffsets} />
           </div>
         </div>
       </GlassCard>
 
       {/* Hidden print area — no template */}
       <div id="print-area" style={{ display: 'none' }}>
-        <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate />
-        <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate />
+        <AttestatPage student={student} pageNum={1} lang={lang} template={tmpls[0]} items={items} noTemplate positionOffsets={positionOffsets} />
+        <AttestatPage student={student} pageNum={2} lang={lang} template={tmpls[1]} items={items} noTemplate positionOffsets={positionOffsets} />
       </div>
     </div>
   )
@@ -1060,6 +1209,7 @@ export default function App() {
   const [tab, setTab]           = useState('editor')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
+  const [positionOffsets, setPositionOffsets] = useState(clonePositionOffsets)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
@@ -1256,8 +1406,22 @@ export default function App() {
                   ))}
                 </div>
 
-                {tab === 'editor'   && <TabEditor   students={students} setStudents={setStudents} lang={lang} />}
-                {tab === 'generate' && <TabGenerate students={students} lang={lang} />}
+                {tab === 'editor' && (
+                  <TabEditor
+                    students={students}
+                    setStudents={setStudents}
+                    lang={lang}
+                    positionOffsets={positionOffsets}
+                    setPositionOffsets={setPositionOffsets}
+                  />
+                )}
+                {tab === 'generate' && (
+                  <TabGenerate
+                    students={students}
+                    lang={lang}
+                    positionOffsets={positionOffsets}
+                  />
+                )}
               </>
             )}
           </div>

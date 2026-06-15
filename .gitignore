@@ -16,3 +16,4 @@ subjects_list.txt
 *.htm
 *.files/
 module_structure.json
+.vercel
