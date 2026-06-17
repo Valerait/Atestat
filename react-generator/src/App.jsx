@@ -402,7 +402,7 @@ function splitWordsByLimit(text, limit) {
 function splitKzSpecialty(text) {
   const value = (text || '').trim()
   const suffix = 'мамандығында'
-  const lineLimit = 78
+  const lineLimit = 64
   if (!value.endsWith(suffix)) return splitWordsByLimit(value, lineLimit)
   const specialty = value.slice(0, -suffix.length).trim()
   if (!specialty) return [suffix]
