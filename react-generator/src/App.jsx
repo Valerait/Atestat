@@ -250,7 +250,15 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
 
   let ai = 0, curY = areas[0].yStart, rowNum = 1, prevModule = null
   const items = []
-  const areaYOff = (area) => (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
+  const baseAreaYOff = (area) => {
+    if (lang === 'kz' && (area.offsetKey === 'page1Left' || area.offsetKey === 'page2Left')) {
+      return -1.2 * MM
+    }
+    if (lang === 'ru' && area.offsetKey === 'page1Left') return -0.5 * MM
+    if (lang === 'ru' && area.offsetKey === 'page2Left') return -1.8 * MM
+    return 0
+  }
+  const areaYOff = (area) => baseAreaYOff(area) + (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
 
   for (const subj of student.subjects_list) {
     const module = (subj.module || '').trim()
@@ -324,6 +332,11 @@ function getPage1Layout(lang, forPdf = false, positionOffsets = DEFAULT_POSITION
     l.sy     += 0.5*MM; l.ey     += 0.5*MM
     l.inst_y += 0.5*MM; l.spec_y += 0.5*MM
     l.qual_y += 0.5*MM; l.qual2_y += 0.5*MM
+    l.doc_y  -= 1*MM
+    l.name_y -= 0.5*MM
+    l.sy     -= 1*MM;   l.ey     -= 1*MM
+    l.inst_y -= 0.5*MM; l.spec_y -= 0.5*MM
+    l.qual_y -= 1.2*MM; l.qual2_y -= 1.2*MM
   }
   if (lang === 'ru') {
     l.doc_x  += 13*MM; l.doc_y  -= 1*MM
@@ -332,6 +345,8 @@ function getPage1Layout(lang, forPdf = false, positionOffsets = DEFAULT_POSITION
     l.ex     += 10*MM; l.ey     -= 3*MM
     l.inst_y -= 4*MM;  l.spec_y -= 3*MM
     l.qual_y -= 3*MM
+    l.doc_y  -= 0.3*MM
+    l.name_y -= 0.8*MM
   }
   l.doc_x  += 8*MM
   l.name_x += 8*MM
@@ -368,6 +383,44 @@ function splitCentered(text, threshold = 55) {
   return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')]
 }
 
+function splitWordsByLimit(text, limit) {
+  const lines = []
+  let current = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const next = current ? `${current} ${word}` : word
+    if (current && next.length > limit) {
+      lines.push(current)
+      current = word
+    } else {
+      current = next
+    }
+  }
+  if (current) lines.push(current)
+  return lines
+}
+
+function splitKzSpecialty(text) {
+  const value = (text || '').trim()
+  const suffix = 'мамандығында'
+  const lineLimit = 78
+  if (!value.endsWith(suffix)) return splitWordsByLimit(value, lineLimit)
+  const specialty = value.slice(0, -suffix.length).trim()
+  if (!specialty) return [suffix]
+
+  const lines = splitWordsByLimit(specialty, lineLimit)
+  if (lines.length === 1) return [lines[0], suffix]
+
+  const last = `${lines[lines.length - 1]} ${suffix}`
+  return last.length <= lineLimit
+    ? [...lines.slice(0, -1), last]
+    : [...lines, suffix]
+}
+
+function withRuQualificationPrefix(text) {
+  const value = (text || '4S01140101 "Учитель начального образования"').trim()
+  return /^квалификаци[яи]\b/i.test(value) ? value : `квалификация ${value}`
+}
+
 // ─────────────────────────────────────────────
 // ATTESTAT PAGE — renders one A4 landscape page
 // Positions faithfully mirror pdf_generator.py
@@ -384,8 +437,7 @@ function AttestatPage({ student, pageNum, lang, template, items, noTemplate = fa
     const sr = student.specialty_ru ||
       (student.specialty || '').replace(/мамандығында\s*$/, '').trim()
     specTxt  = sr || '01140100 "Педагогика и методика начального обучения"'
-    qualTxt  = student.qualification_ru || student.qualification ||
-      'квалификации 4S01140101 "Учитель начального образования"'
+    qualTxt  = withRuQualificationPrefix(student.qualification_ru || student.qualification)
     qual2Txt = student.qualification_2_ru || ''
   } else {
     nameVal  = student.name_kz || ''
@@ -396,8 +448,8 @@ function AttestatPage({ student, pageNum, lang, template, items, noTemplate = fa
     qual2Txt = student.qualification_2 || 'біліктілігі бойынша'
   }
 
-  const specLines = splitCentered(specTxt)
-  const qualLines = splitCentered(qualTxt)
+  const specLines = lang === 'kz' ? splitKzSpecialty(specTxt) : splitCentered(specTxt)
+  const qualLines = splitCentered(qualTxt, lang === 'ru' ? 68 : 55)
   const pageItems = items.filter(it => it.page === pageNum)
   const pdfShift  = noTemplate ? 2*MM : 0
 
