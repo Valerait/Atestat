@@ -16,6 +16,7 @@ const PAGE_W = 841.89   // pt — A4 Landscape ширина
 const PAGE_H = 595.28   // pt — A4 Landscape высота
 const MM     = 2.835432 // 1 мм в pt
 const LS     = 12       // line-spacing pt (grades)
+const LAYOUT_SETTINGS_STORAGE_KEY = 'atestatLayoutSettingsV1'
 
 const POSITION_FIELDS = [
   ['doc', '№ документа'],
@@ -48,6 +49,47 @@ const cloneModuleOffsets = () => ({
   kz: { ...DEFAULT_MODULE_OFFSETS.kz },
   ru: { ...DEFAULT_MODULE_OFFSETS.ru },
 })
+
+function mergeOffsetSettings(defaults, saved) {
+  const merged = {}
+  for (const lang of Object.keys(defaults)) {
+    merged[lang] = { ...defaults[lang] }
+    const savedLang = saved?.[lang]
+    if (!savedLang || typeof savedLang !== 'object') continue
+    for (const key of Object.keys(defaults[lang])) {
+      const value = Number(savedLang[key])
+      if (Number.isFinite(value)) merged[lang][key] = value
+    }
+  }
+  return merged
+}
+
+function loadLayoutSettings() {
+  const fallback = {
+    positionOffsets: clonePositionOffsets(),
+    moduleOffsets: cloneModuleOffsets(),
+  }
+  if (typeof window === 'undefined') return fallback
+
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY) || 'null')
+    return {
+      positionOffsets: mergeOffsetSettings(DEFAULT_POSITION_OFFSETS, saved?.positionOffsets),
+      moduleOffsets: mergeOffsetSettings(DEFAULT_MODULE_OFFSETS, saved?.moduleOffsets),
+    }
+  } catch (_) {
+    return fallback
+  }
+}
+
+function saveLayoutSettings(positionOffsets, moduleOffsets) {
+  if (typeof window === 'undefined') return false
+  window.localStorage.setItem(
+    LAYOUT_SETTINGS_STORAGE_KEY,
+    JSON.stringify({ positionOffsets, moduleOffsets }),
+  )
+  return true
+}
 
 const ENABLE_VERCEL_AUTH = import.meta.env.VITE_ENABLE_VERCEL_AUTH === 'true'
 
@@ -254,6 +296,7 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
     if (lang === 'kz' && (area.offsetKey === 'page1Left' || area.offsetKey === 'page2Left')) {
       return -1.2 * MM
     }
+    if (lang === 'kz' && area.offsetKey === 'page2Right') return -1.5 * MM
     if (lang === 'ru' && area.offsetKey === 'page1Left') return -0.5 * MM
     if (lang === 'ru' && area.offsetKey === 'page2Left') return -1.8 * MM
     return 0
@@ -916,8 +959,9 @@ function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
 // ─────────────────────────────────────────────
 // TAB: EDITOR
 // ─────────────────────────────────────────────
-function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets, moduleOffsets, setModuleOffsets }) {
+function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets, moduleOffsets, setModuleOffsets, onSaveLayoutSettings }) {
   const [selIdx, setSelIdx] = useState(0)
+  const [layoutSaveStatus, setLayoutSaveStatus] = useState('')
   const s = students[selIdx] || {}
 
   const upd = (field, val) =>
@@ -950,6 +994,10 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
       }
     }
     setStudents(next)
+  }
+
+  const handleSaveLayoutSettings = () => {
+    setLayoutSaveStatus(onSaveLayoutSettings?.() ? 'Сохранено' : 'Ошибка сохранения')
   }
 
   const [scale, setScale] = useState(0.55)
@@ -1080,6 +1128,13 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
           moduleOffsets={moduleOffsets}
           setModuleOffsets={setModuleOffsets}
         />
+
+        <GlassCard className="flex items-center justify-end gap-3">
+          {layoutSaveStatus && (
+            <span className="text-xs text-indigo-300">{layoutSaveStatus}</span>
+          )}
+          <Btn primary onClick={handleSaveLayoutSettings}>Сохранить</Btn>
+        </GlassCard>
 
         <GlassCard>
           <h4 className="text-indigo-300 font-semibold text-sm mb-3">
@@ -1368,8 +1423,9 @@ export default function App() {
   const [tab, setTab]           = useState('editor')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
-  const [positionOffsets, setPositionOffsets] = useState(clonePositionOffsets)
-  const [moduleOffsets, setModuleOffsets] = useState(cloneModuleOffsets)
+  const [initialLayoutSettings] = useState(loadLayoutSettings)
+  const [positionOffsets, setPositionOffsets] = useState(initialLayoutSettings.positionOffsets)
+  const [moduleOffsets, setModuleOffsets] = useState(initialLayoutSettings.moduleOffsets)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
@@ -1387,6 +1443,14 @@ export default function App() {
     }
     setLoading(false)
   }, [])
+
+  const handleSaveLayoutSettings = useCallback(() => {
+    try {
+      return saveLayoutSettings(positionOffsets, moduleOffsets)
+    } catch (_) {
+      return false
+    }
+  }, [positionOffsets, moduleOffsets])
 
   const totalSubjs = students[0]?.subjects_list?.length || 0
   const totalMods  = new Set(students[0]?.subjects_list?.map(s => s.module) || []).size
@@ -1584,6 +1648,7 @@ export default function App() {
                     setPositionOffsets={setPositionOffsets}
                     moduleOffsets={moduleOffsets}
                     setModuleOffsets={setModuleOffsets}
+                    onSaveLayoutSettings={handleSaveLayoutSettings}
                   />
                 )}
                 {tab === 'generate' && (
