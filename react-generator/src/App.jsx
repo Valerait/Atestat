@@ -740,6 +740,10 @@ async function generatePdfBlob(page1El, page2El) {
   return pdf.output('blob')
 }
 
+function hasDocumentNumber(student) {
+  return String(student?.document_number || '').trim().length > 0
+}
+
 // ─────────────────────────────────────────────
 // SHARED UI COMPONENTS
 // ─────────────────────────────────────────────
@@ -1017,6 +1021,10 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
   const previewH = (PAGE_H * 2 + 10) * scale
 
   const dlWithTemplate = async () => {
+    if (!hasDocumentNumber(s)) {
+      setDlStatus('❌ Введите № документа')
+      return
+    }
     setBusy(true); setDlStatus('Генерация...')
     try {
       // Use fresh createRoot container (same as dlAll) to avoid getBoundingClientRect
@@ -1242,6 +1250,10 @@ function TabGenerate({ students, lang, positionOffsets, moduleOffsets }) {
     : ['/data/template_kz.jpg',       '/data/template_kz_2.jpg']
 
   const dlOne = async () => {
+    if (!hasDocumentNumber(student)) {
+      setStatus('❌ Введите № документа')
+      return
+    }
     setBusy(true); setStatus('Генерация PDF...')
     try {
       // Fresh createRoot container — avoids getBoundingClientRect offset issues
@@ -1287,6 +1299,12 @@ function TabGenerate({ students, lang, positionOffsets, moduleOffsets }) {
   }
 
   const dlAll = async () => {
+    const missingDocIdx = students.findIndex(s => !hasDocumentNumber(s))
+    if (missingDocIdx !== -1) {
+      setProgress(0)
+      setStatus(`❌ Введите № документа у студента ${missingDocIdx + 1}`)
+      return
+    }
     setBusy(true); setProgress(0)
     const zip = new JSZip()
 
