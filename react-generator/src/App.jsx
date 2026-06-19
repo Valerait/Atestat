@@ -299,6 +299,7 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
     if (lang === 'kz' && area.offsetKey === 'page2Right') return -1.5 * MM
     if (lang === 'ru' && area.offsetKey === 'page1Left') return -0.5 * MM
     if (lang === 'ru' && area.offsetKey === 'page2Left') return -1.8 * MM
+    if (lang === 'ru' && area.offsetKey === 'page2Right') return -1.5 * MM
     return 0
   }
   const areaYOff = (area) => baseAreaYOff(area) + (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
