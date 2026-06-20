@@ -18,6 +18,13 @@ const MM     = 2.835432 // 1 мм в pt
 const LS     = 12       // line-spacing pt (grades)
 const LAYOUT_SETTINGS_STORAGE_KEY = 'atestatLayoutSettingsV1'
 
+const PAGE_AREA_FIELDS = [
+  ['page1Left', '1-я страница, левая половина'],
+  ['page1Right', '1-я страница, правая половина'],
+  ['page2Left', '2-я страница, левая половина'],
+  ['page2Right', '2-я страница, правая половина'],
+]
+
 const POSITION_FIELDS = [
   ['doc', '№ документа'],
   ['name', 'ФИО'],
@@ -27,8 +34,26 @@ const POSITION_FIELDS = [
   ['qualification', 'Квалификация'],
 ]
 
+const GRADE_COLUMN_FIELDS = [
+  ['number', 'Номер'],
+  ['moduleSubject', 'Предметы с модулем'],
+  ['hours', 'Часы'],
+  ['credits', 'Кредиты'],
+  ['percent', 'Проценты'],
+  ['letter', 'Буквенное обозначение'],
+  ['points', 'В баллах'],
+  ['traditional', 'Пятибалльная система'],
+]
+
 const createPositionOffsetSet = () =>
   Object.fromEntries(POSITION_FIELDS.flatMap(([key]) => [[key, 0], [`${key}_x`, 0]]))
+
+const createGradeColumnOffsetSet = () =>
+  Object.fromEntries(
+    PAGE_AREA_FIELDS.flatMap(([areaKey]) =>
+      GRADE_COLUMN_FIELDS.map(([fieldKey]) => [`${areaKey}_${fieldKey}`, 0]),
+    ),
+  )
 
 const DEFAULT_POSITION_OFFSETS = {
   kz: createPositionOffsetSet(),
@@ -41,13 +66,29 @@ const clonePositionOffsets = () => ({
 })
 
 const DEFAULT_MODULE_OFFSETS = {
-  kz: { page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0 },
-  ru: { page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0 },
+  kz: {
+    page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0,
+    page1Left_x: 0, page1Right_x: 0, page2Left_x: 0, page2Right_x: 0,
+  },
+  ru: {
+    page1Left: 0, page1Right: 0, page2Left: 0, page2Right: 0,
+    page1Left_x: 0, page1Right_x: 0, page2Left_x: 0, page2Right_x: 0,
+  },
 }
 
 const cloneModuleOffsets = () => ({
   kz: { ...DEFAULT_MODULE_OFFSETS.kz },
   ru: { ...DEFAULT_MODULE_OFFSETS.ru },
+})
+
+const DEFAULT_GRADE_COLUMN_OFFSETS = {
+  kz: createGradeColumnOffsetSet(),
+  ru: createGradeColumnOffsetSet(),
+}
+
+const cloneGradeColumnOffsets = () => ({
+  kz: { ...DEFAULT_GRADE_COLUMN_OFFSETS.kz },
+  ru: { ...DEFAULT_GRADE_COLUMN_OFFSETS.ru },
 })
 
 function mergeOffsetSettings(defaults, saved) {
@@ -68,6 +109,7 @@ function loadLayoutSettings() {
   const fallback = {
     positionOffsets: clonePositionOffsets(),
     moduleOffsets: cloneModuleOffsets(),
+    gradeColumnOffsets: cloneGradeColumnOffsets(),
   }
   if (typeof window === 'undefined') return fallback
 
@@ -76,17 +118,18 @@ function loadLayoutSettings() {
     return {
       positionOffsets: mergeOffsetSettings(DEFAULT_POSITION_OFFSETS, saved?.positionOffsets),
       moduleOffsets: mergeOffsetSettings(DEFAULT_MODULE_OFFSETS, saved?.moduleOffsets),
+      gradeColumnOffsets: mergeOffsetSettings(DEFAULT_GRADE_COLUMN_OFFSETS, saved?.gradeColumnOffsets),
     }
   } catch (_) {
     return fallback
   }
 }
 
-function saveLayoutSettings(positionOffsets, moduleOffsets) {
+function saveLayoutSettings(positionOffsets, moduleOffsets, gradeColumnOffsets) {
   if (typeof window === 'undefined') return false
   window.localStorage.setItem(
     LAYOUT_SETTINGS_STORAGE_KEY,
-    JSON.stringify({ positionOffsets, moduleOffsets }),
+    JSON.stringify({ positionOffsets, moduleOffsets, gradeColumnOffsets }),
   )
   return true
 }
@@ -274,7 +317,12 @@ function wrapText(text, maxChars = 28) {
 // ─────────────────────────────────────────────
 // LAYOUT CALCULATOR — mirrors _draw_grades
 // ─────────────────────────────────────────────
-function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) {
+function calculateLayout(
+  student,
+  lang,
+  moduleOffsets = DEFAULT_MODULE_OFFSETS,
+  gradeColumnOffsets = DEFAULT_GRADE_COLUMN_OFFSETS,
+) {
   const areas = [
     { page: 1, x: 24,  yStart: 280 + 3*MM, yLimit: 20, offsetKey: 'page1Left' },
     { page: 1, x: 448, yStart: 563 + 3*MM, yLimit: 20, offsetKey: 'page1Right' },
@@ -303,6 +351,11 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
     return 0
   }
   const areaYOff = (area) => baseAreaYOff(area) + (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
+  const areaXOff = (area) => (moduleOffsets[lang]?.[`${area.offsetKey}_x`] || 0) * MM
+  const gradeOffsets = gradeColumnOffsets[lang] || DEFAULT_GRADE_COLUMN_OFFSETS[lang]
+  const columnXForArea = (area) => Object.fromEntries(
+    GRADE_COLUMN_FIELDS.map(([key]) => [key, (gradeOffsets[`${area.offsetKey}_${key}`] || 0) * MM]),
+  )
 
   for (const subj of student.subjects_list) {
     const module = (subj.module || '').trim()
@@ -314,7 +367,14 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
         if (++ai >= areas.length) break
         curY = areas[ai].yStart
       }
-      items.push({ type: 'header', page: areas[ai].page, x: areas[ai].x, y: curY + areaYOff(areas[ai]), lines: hLines })
+      items.push({
+        type: 'header',
+        page: areas[ai].page,
+        x: areas[ai].x + areaXOff(areas[ai]),
+        y: curY + areaYOff(areas[ai]),
+        lines: hLines,
+        columnX: columnXForArea(areas[ai]),
+      })
       curY -= hHeight
       prevModule = module
     }
@@ -336,9 +396,10 @@ function calculateLayout(student, lang, moduleOffsets = DEFAULT_MODULE_OFFSETS) 
     const passLabel = lang === 'ru' ? 'зачтено' : 'сыналды'
 
     items.push({
-      type: 'subject', page: area.page, x: area.x, y: curY + areaYOff(area),
+      type: 'subject', page: area.page, x: area.x + areaXOff(area), y: curY + areaYOff(area),
       rowNum, lines, hoursStr, credits, scoreStr, isPass, passLabel,
       letter: subj.letter || '', point: subj.point || '', trad,
+      columnX: columnXForArea(area),
       hoursOffX:   area.page === 2 ? 171.3 : 165.6,
       creditsOffX: area.page === 2 ? 206   : 200,
       // trad/pass column X differs per page (mirrors Python trad_col_x logic)
@@ -625,10 +686,11 @@ function AttestatPage({ student, pageNum, lang, template, items, noTemplate = fa
       {/* ── GRADES (both pages) ── */}
       {pageItems.map((item, i) => {
         const itemTop = rl(item.y) - pdfShift
+        const columnX = item.columnX || {}
         if (item.type === 'header') {
           return item.lines.map((line, li) => (
             <T key={`h${i}-${li}`} style={{
-              left: `${item.x}pt`,
+              left: `${item.x + (columnX.moduleSubject || 0)}pt`,
               top:  `${itemTop + li * 9}pt`,
               fontSize: `${FS}pt`,
               fontWeight: 'bold',
@@ -642,40 +704,40 @@ function AttestatPage({ student, pageNum, lang, template, items, noTemplate = fa
         return (
           <span key={`s${i}`}>
             {/* Row number */}
-            <T style={{ left:`${item.x}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>
+            <T style={{ left:`${item.x + (columnX.number || 0)}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>
               {item.rowNum}
             </T>
 
             {/* Subject name (wrapped lines) */}
             {item.lines.map((line, li) => (
-              <T key={li} style={{ left:`${item.x + item.subjectOffX}pt`, top:`${itemTop + li * 9}pt`, fontSize:`${FS}pt` }}>
+              <T key={li} style={{ left:`${item.x + item.subjectOffX + (columnX.moduleSubject || 0)}pt`, top:`${itemTop + li * 9}pt`, fontSize:`${FS}pt` }}>
                 {line}
               </T>
             ))}
 
             {/* Hours (centered) */}
-            <T style={{ left:`${item.x + item.hoursOffX}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt`, transform:'translateX(-50%)' }}>
+            <T style={{ left:`${item.x + item.hoursOffX + (columnX.hours || 0)}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt`, transform:'translateX(-50%)' }}>
               {item.hoursStr}
             </T>
 
             {/* Credits (centered) */}
             {item.credits && (
-              <T style={{ left:`${item.x + item.creditsOffX}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt`, transform:'translateX(-50%)' }}>
+              <T style={{ left:`${item.x + item.creditsOffX + (columnX.credits || 0)}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt`, transform:'translateX(-50%)' }}>
                 {item.credits}
               </T>
             )}
 
             {/* Scores or pass label */}
             {item.isPass ? (
-              <T style={{ left:`${item.x + item.tradOffX}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>
+              <T style={{ left:`${item.x + item.tradOffX + (columnX.traditional || 0)}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>
                 {item.passLabel}
               </T>
             ) : (
               <>
-                <T style={{ left:`${item.x + 235}pt`,           top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.scoreStr}</T>
-                <T style={{ left:`${item.x + 258}pt`,           top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.letter}</T>
-                <T style={{ left:`${item.x + 295}pt`,           top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.point}</T>
-                <T style={{ left:`${item.x + item.tradOffX}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.trad}</T>
+                <T style={{ left:`${item.x + 235 + (columnX.percent || 0)}pt`,           top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.scoreStr}</T>
+                <T style={{ left:`${item.x + 258 + (columnX.letter || 0)}pt`,            top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.letter}</T>
+                <T style={{ left:`${item.x + 295 + (columnX.points || 0)}pt`,            top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.point}</T>
+                <T style={{ left:`${item.x + item.tradOffX + (columnX.traditional || 0)}pt`, top:`${itemTop}pt`, fontSize:`${FS}pt` }}>{item.trad}</T>
               </>
             )}
           </span>
@@ -889,25 +951,137 @@ function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
     }))
   }
 
-  const resetLang = (docLang) => {
-    setModuleOffsets(prev => ({
+  const resetLang = (docLang, axis) => {
+    const isHorizontal = axis === 'x'
+    setModuleOffsets(prev => {
+      const nextLang = { ...prev[docLang] }
+      for (const [fieldKey] of moduleAreas) {
+        const key = isHorizontal ? `${fieldKey}_x` : fieldKey
+        nextLang[key] = DEFAULT_MODULE_OFFSETS[docLang][key]
+      }
+      return { ...prev, [docLang]: nextLang }
+    })
+  }
+
+  const renderValue = (val, axis = 'y') => {
+    if (!val) return '0 мм'
+    const abs = Math.abs(val).toFixed(1).replace('.0', '')
+    if (axis === 'x') return `${val > 0 ? '→' : '←'} ${abs} мм`
+    return `${val > 0 ? '↑' : '↓'} ${abs} мм`
+  }
+
+  const renderSliders = (docLang, title, axis) => {
+    const isHorizontal = axis === 'x'
+    const sectionTitle = isHorizontal ? 'Вправо / влево' : 'Вверх / вниз'
+    return (
+      <div className="space-y-3">
+        {moduleAreas.map(([fieldKey, label]) => {
+          const key = isHorizontal ? `${fieldKey}_x` : fieldKey
+          const value = moduleOffsets[docLang]?.[key] ?? 0
+          return (
+            <label key={key} className="block">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="text-xs text-slate-300">{label}</span>
+                <span className="text-[11px] text-indigo-300 tabular-nums shrink-0">{renderValue(value, axis)}</span>
+              </div>
+              <input
+                type="range"
+                min="-8"
+                max="8"
+                step="0.1"
+                value={value}
+                aria-label={`${title} ${sectionTitle} ${label}`}
+                onChange={e => update(docLang, key, e.target.value)}
+                onDoubleClick={() => update(docLang, key, 0)}
+                className="w-full accent-indigo-400"
+              />
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {[
+        ['y', 'Положение модулей и предметов вверх/вниз'],
+        ['x', 'Положение модулей и предметов вправо/влево'],
+      ].map(([axis, blockTitle]) => (
+        <GlassCard key={axis}>
+          <details className="group">
+            <summary className="cursor-pointer text-sm text-indigo-300 font-medium py-1 select-none list-none flex items-center gap-2">
+              <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
+              {blockTitle}
+            </summary>
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-5">
+              {[
+                ['kz', 'Қазақша'],
+                ['ru', 'Русская'],
+              ].map(([docLang, title]) => (
+                <section key={docLang} className="min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h4>
+                    <button
+                      type="button"
+                      onClick={() => resetLang(docLang, axis)}
+                      className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
+                    >
+                      Сбросить
+                    </button>
+                  </div>
+                  {renderSliders(docLang, title, axis)}
+                </section>
+              ))}
+            </div>
+          </details>
+        </GlassCard>
+      ))}
+    </div>
+  )
+}
+
+function GradeColumnPositionControls({ gradeColumnOffsets, setGradeColumnOffsets }) {
+  const update = (docLang, areaKey, fieldKey, val) => {
+    const nextVal = Number(val)
+    const key = `${areaKey}_${fieldKey}`
+    setGradeColumnOffsets(prev => ({
       ...prev,
-      [docLang]: { ...DEFAULT_MODULE_OFFSETS[docLang] },
+      [docLang]: { ...prev[docLang], [key]: nextVal },
     }))
+  }
+
+  const resetLang = (docLang) => {
+    setGradeColumnOffsets(prev => ({
+      ...prev,
+      [docLang]: { ...DEFAULT_GRADE_COLUMN_OFFSETS[docLang] },
+    }))
+  }
+
+  const resetArea = (docLang, areaKey) => {
+    setGradeColumnOffsets(prev => {
+      const nextLang = { ...prev[docLang] }
+      for (const [fieldKey] of GRADE_COLUMN_FIELDS) {
+        const key = `${areaKey}_${fieldKey}`
+        nextLang[key] = DEFAULT_GRADE_COLUMN_OFFSETS[docLang][key]
+      }
+      return { ...prev, [docLang]: nextLang }
+    })
   }
 
   const renderValue = (val) => {
     if (!val) return '0 мм'
     const abs = Math.abs(val).toFixed(1).replace('.0', '')
-    return `${val > 0 ? '↑' : '↓'} ${abs} мм`
+    return `${val > 0 ? '→' : '←'} ${abs} мм`
   }
 
-  const renderSliders = (docLang, title) => (
+  const renderSliders = (docLang, title, areaKey) => (
     <div className="space-y-3">
-      {moduleAreas.map(([fieldKey, label]) => {
-        const value = moduleOffsets[docLang]?.[fieldKey] ?? 0
+      {GRADE_COLUMN_FIELDS.map(([fieldKey, label]) => {
+        const key = `${areaKey}_${fieldKey}`
+        const value = gradeColumnOffsets[docLang]?.[key] ?? 0
         return (
-          <label key={fieldKey} className="block">
+          <label key={key} className="block">
             <div className="flex items-center justify-between gap-3 mb-1">
               <span className="text-xs text-slate-300">{label}</span>
               <span className="text-[11px] text-indigo-300 tabular-nums shrink-0">{renderValue(value)}</span>
@@ -918,9 +1092,9 @@ function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
               max="8"
               step="0.1"
               value={value}
-              aria-label={`${title} ${label} вверх / вниз`}
-              onChange={e => update(docLang, fieldKey, e.target.value)}
-              onDoubleClick={() => update(docLang, fieldKey, 0)}
+              aria-label={`${title} вправо / влево ${label}`}
+              onChange={e => update(docLang, areaKey, fieldKey, e.target.value)}
+              onDoubleClick={() => update(docLang, areaKey, fieldKey, 0)}
               className="w-full accent-indigo-400"
             />
           </label>
@@ -934,26 +1108,55 @@ function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
       <details className="group">
         <summary className="cursor-pointer text-sm text-indigo-300 font-medium py-1 select-none list-none flex items-center gap-2">
           <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
-          Положение модулей и предметов вверх/вниз
+          Положение колонок оценок вправо/влево
         </summary>
-        <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-5">
-          {[
-            ['kz', 'Қазақша'],
-            ['ru', 'Русская'],
-          ].map(([docLang, title]) => (
-            <section key={docLang} className="min-w-0">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h4>
-                <button
-                  type="button"
-                  onClick={() => resetLang(docLang)}
-                  className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
-                >
-                  Сбросить
-                </button>
+        <div className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {[
+              ['kz', 'Сбросить Қазақша'],
+              ['ru', 'Сбросить Русская'],
+            ].map(([docLang, label]) => (
+              <button
+                key={docLang}
+                type="button"
+                onClick={() => resetLang(docLang)}
+                className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {PAGE_AREA_FIELDS.map(([areaKey, areaLabel], areaIndex) => (
+            <details
+              key={areaKey}
+              className={areaIndex ? 'group/area border-t border-indigo-500/10 pt-4' : 'group/area'}
+            >
+              <summary className="cursor-pointer select-none list-none flex items-center gap-2 mb-3 text-xs font-medium text-indigo-200">
+                <span className="transition-transform group-open/area:rotate-90 inline-block">▶</span>
+                {areaLabel}
+              </summary>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {[
+                  ['kz', 'Қазақша'],
+                  ['ru', 'Русская'],
+                ].map(([docLang, title]) => (
+                  <section key={docLang} className="min-w-0">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h5>
+                      <button
+                        type="button"
+                        onClick={() => resetArea(docLang, areaKey)}
+                        className="text-[11px] text-indigo-300 hover:text-indigo-100 transition-colors cursor-pointer"
+                      >
+                        Сбросить
+                      </button>
+                    </div>
+                    {renderSliders(docLang, title, areaKey)}
+                  </section>
+                ))}
               </div>
-              {renderSliders(docLang, title)}
-            </section>
+            </details>
           ))}
         </div>
       </details>
@@ -964,7 +1167,18 @@ function ModulePositionControls({ moduleOffsets, setModuleOffsets }) {
 // ─────────────────────────────────────────────
 // TAB: EDITOR
 // ─────────────────────────────────────────────
-function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOffsets, moduleOffsets, setModuleOffsets, onSaveLayoutSettings }) {
+function TabEditor({
+  students,
+  setStudents,
+  lang,
+  positionOffsets,
+  setPositionOffsets,
+  moduleOffsets,
+  setModuleOffsets,
+  gradeColumnOffsets,
+  setGradeColumnOffsets,
+  onSaveLayoutSettings,
+}) {
   const [selIdx, setSelIdx] = useState(0)
   const [layoutSaveStatus, setLayoutSaveStatus] = useState('')
   const s = students[selIdx] || {}
@@ -1013,7 +1227,7 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
 
   const INPUT = 'bg-slate-900 border border-indigo-500/20 text-slate-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:border-indigo-400'
 
-  const items = calculateLayout(s, lang, moduleOffsets)
+  const items = calculateLayout(s, lang, moduleOffsets, gradeColumnOffsets)
   const tmpls = lang === 'ru'
     ? ['/data/template_ru_fixed.jpg', '/data/template_ru_2_fixed.jpg']
     : ['/data/template_kz.jpg',       '/data/template_kz_2.jpg']
@@ -1138,6 +1352,11 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
           setModuleOffsets={setModuleOffsets}
         />
 
+        <GradeColumnPositionControls
+          gradeColumnOffsets={gradeColumnOffsets}
+          setGradeColumnOffsets={setGradeColumnOffsets}
+        />
+
         <GlassCard className="flex items-center justify-end gap-3">
           {layoutSaveStatus && (
             <span className="text-xs text-indigo-300">{layoutSaveStatus}</span>
@@ -1238,14 +1457,14 @@ function TabEditor({ students, setStudents, lang, positionOffsets, setPositionOf
 // ─────────────────────────────────────────────
 // TAB: GENERATE
 // ─────────────────────────────────────────────
-function TabGenerate({ students, lang, positionOffsets, moduleOffsets }) {
+function TabGenerate({ students, lang, positionOffsets, moduleOffsets, gradeColumnOffsets }) {
   const [selIdx, setSelIdx]     = useState(0)
   const [status, setStatus]     = useState('')
   const [progress, setProgress] = useState(0)
   const [busy, setBusy]         = useState(false)
 
   const student = students[selIdx] || {}
-  const items   = students.length ? calculateLayout(student, lang, moduleOffsets) : []
+  const items   = students.length ? calculateLayout(student, lang, moduleOffsets, gradeColumnOffsets) : []
   const tmpls   = lang === 'ru'
     ? ['/data/template_ru_fixed.jpg', '/data/template_ru_2_fixed.jpg']
     : ['/data/template_kz.jpg',       '/data/template_kz_2.jpg']
@@ -1314,7 +1533,7 @@ function TabGenerate({ students, lang, positionOffsets, moduleOffsets }) {
       setProgress(Math.round((i / students.length) * 100))
 
       const s   = students[i]
-      const it  = calculateLayout(s, lang, moduleOffsets)
+      const it  = calculateLayout(s, lang, moduleOffsets, gradeColumnOffsets)
 
       // Render off-screen at full A4 size
       const container = document.createElement('div')
@@ -1445,6 +1664,7 @@ export default function App() {
   const [initialLayoutSettings] = useState(loadLayoutSettings)
   const [positionOffsets, setPositionOffsets] = useState(initialLayoutSettings.positionOffsets)
   const [moduleOffsets, setModuleOffsets] = useState(initialLayoutSettings.moduleOffsets)
+  const [gradeColumnOffsets, setGradeColumnOffsets] = useState(initialLayoutSettings.gradeColumnOffsets)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
@@ -1465,11 +1685,11 @@ export default function App() {
 
   const handleSaveLayoutSettings = useCallback(() => {
     try {
-      return saveLayoutSettings(positionOffsets, moduleOffsets)
+      return saveLayoutSettings(positionOffsets, moduleOffsets, gradeColumnOffsets)
     } catch (_) {
       return false
     }
-  }, [positionOffsets, moduleOffsets])
+  }, [positionOffsets, moduleOffsets, gradeColumnOffsets])
 
   const totalSubjs = students[0]?.subjects_list?.length || 0
   const totalMods  = new Set(students[0]?.subjects_list?.map(s => s.module) || []).size
@@ -1667,6 +1887,8 @@ export default function App() {
                     setPositionOffsets={setPositionOffsets}
                     moduleOffsets={moduleOffsets}
                     setModuleOffsets={setModuleOffsets}
+                    gradeColumnOffsets={gradeColumnOffsets}
+                    setGradeColumnOffsets={setGradeColumnOffsets}
                     onSaveLayoutSettings={handleSaveLayoutSettings}
                   />
                 )}
@@ -1676,6 +1898,7 @@ export default function App() {
                     lang={lang}
                     positionOffsets={positionOffsets}
                     moduleOffsets={moduleOffsets}
+                    gradeColumnOffsets={gradeColumnOffsets}
                   />
                 )}
               </>
