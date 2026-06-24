@@ -57,6 +57,18 @@ const createGradeColumnOffsetSet = (overrides = {}) => ({
   ...overrides,
 })
 
+const GRADE_COLUMN_BASE_OFFSET_VERSION = 2
+const PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS = {
+  page2Right_number: 0,
+  page2Right_moduleSubject: 0,
+  page2Right_hours: -1.7,
+  page2Right_credits: -1.7,
+  page2Right_percent: 0,
+  page2Right_letter: -0.7,
+  page2Right_points: -0.7,
+  page2Right_traditional: -1.3,
+}
+
 const DEFAULT_POSITION_OFFSETS = {
   kz: createPositionOffsetSet(),
   ru: createPositionOffsetSet(),
@@ -89,11 +101,14 @@ const BASE_GRADE_COLUMN_OFFSETS = {
     page1Right_traditional: -0.7,
     page2Left_letter: 1,
     page2Left_points: 0.6,
-    page2Right_number: -0.8,
-    page2Right_moduleSubject: -1.2,
-    page2Right_percent: -1,
-    page2Right_letter: 0.7,
-    page2Right_traditional: -1,
+    page2Right_number: -0.8 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_number,
+    page2Right_moduleSubject: -1.2 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_moduleSubject,
+    page2Right_hours: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_hours,
+    page2Right_credits: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_credits,
+    page2Right_percent: -1 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_percent,
+    page2Right_letter: 0.7 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_letter,
+    page2Right_points: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_points,
+    page2Right_traditional: -1 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_traditional,
   }),
   ru: createGradeColumnOffsetSet({
     page1Right_number: -0.5,
@@ -102,11 +117,14 @@ const BASE_GRADE_COLUMN_OFFSETS = {
     page2Left_credits: -0.2,
     page2Left_letter: 1,
     page2Left_points: 0.6,
-    page2Right_number: -0.8,
-    page2Right_moduleSubject: -1.2,
-    page2Right_percent: -1,
-    page2Right_letter: 0.7,
-    page2Right_traditional: -1,
+    page2Right_number: -0.8 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_number,
+    page2Right_moduleSubject: -1.2 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_moduleSubject,
+    page2Right_hours: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_hours,
+    page2Right_credits: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_credits,
+    page2Right_percent: -1 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_percent,
+    page2Right_letter: 0.7 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_letter,
+    page2Right_points: PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_points,
+    page2Right_traditional: -1 + PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS.page2Right_traditional,
   }),
 }
 
@@ -150,8 +168,7 @@ function shouldMigrateLegacyGradeColumnOffsets(saved, mode) {
   return false
 }
 
-function mergeGradeColumnOffsetSettings(saved, mode) {
-  const merged = mergeOffsetSettings(DEFAULT_GRADE_COLUMN_OFFSETS, saved)
+function migrateLegacyGradeColumnOffsets(saved, mode, merged) {
   if (!shouldMigrateLegacyGradeColumnOffsets(saved, mode)) return merged
 
   const migrated = {}
@@ -167,6 +184,30 @@ function mergeGradeColumnOffsetSettings(saved, mode) {
   return migrated
 }
 
+function migrateBakedGradeColumnDeltas(saved, baseVersion, merged) {
+  if ((Number(baseVersion) || 0) >= GRADE_COLUMN_BASE_OFFSET_VERSION) return merged
+
+  const migrated = {}
+  for (const lang of Object.keys(DEFAULT_GRADE_COLUMN_OFFSETS)) {
+    migrated[lang] = { ...merged[lang] }
+    for (const [key, delta] of Object.entries(PAGE2_RIGHT_BAKED_GRADE_COLUMN_DELTAS)) {
+      const savedValue = Number(saved?.[lang]?.[key])
+      if (!delta || !Number.isFinite(savedValue)) continue
+      migrated[lang][key] = Number((migrated[lang][key] - delta).toFixed(4))
+    }
+  }
+  return migrated
+}
+
+function mergeGradeColumnOffsetSettings(saved, mode, baseVersion) {
+  const merged = mergeOffsetSettings(DEFAULT_GRADE_COLUMN_OFFSETS, saved)
+  return migrateBakedGradeColumnDeltas(
+    saved,
+    baseVersion,
+    migrateLegacyGradeColumnOffsets(saved, mode, merged),
+  )
+}
+
 function loadLayoutSettings() {
   const fallback = {
     positionOffsets: clonePositionOffsets(),
@@ -180,7 +221,11 @@ function loadLayoutSettings() {
     return {
       positionOffsets: mergeOffsetSettings(DEFAULT_POSITION_OFFSETS, saved?.positionOffsets),
       moduleOffsets: mergeOffsetSettings(DEFAULT_MODULE_OFFSETS, saved?.moduleOffsets),
-      gradeColumnOffsets: mergeGradeColumnOffsetSettings(saved?.gradeColumnOffsets, saved?.gradeColumnOffsetMode),
+      gradeColumnOffsets: mergeGradeColumnOffsetSettings(
+        saved?.gradeColumnOffsets,
+        saved?.gradeColumnOffsetMode,
+        saved?.gradeColumnBaseOffsetVersion,
+      ),
     }
   } catch (_) {
     return fallback
@@ -191,7 +236,13 @@ function saveLayoutSettings(positionOffsets, moduleOffsets, gradeColumnOffsets) 
   if (typeof window === 'undefined') return false
   window.localStorage.setItem(
     LAYOUT_SETTINGS_STORAGE_KEY,
-    JSON.stringify({ positionOffsets, moduleOffsets, gradeColumnOffsets, gradeColumnOffsetMode: 'user-delta' }),
+    JSON.stringify({
+      positionOffsets,
+      moduleOffsets,
+      gradeColumnOffsets,
+      gradeColumnOffsetMode: 'user-delta',
+      gradeColumnBaseOffsetVersion: GRADE_COLUMN_BASE_OFFSET_VERSION,
+    }),
   )
   return true
 }
