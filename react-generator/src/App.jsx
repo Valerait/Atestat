@@ -201,6 +201,21 @@ const ENABLE_VERCEL_AUTH = import.meta.env.VITE_ENABLE_VERCEL_AUTH === 'true'
 // ─────────────────────────────────────────────
 // УТИЛИТЫ ОЦЕНОК
 // ─────────────────────────────────────────────
+const PASS_GRADE_VALUES = ['сын','сынақ','зачет','зачёт','pass','passed']
+const EXEMPT_GRADE_VALUES = ['анық','анықтама']
+
+function normalizeGradeValue(value) {
+  return String(value || '').trim().toLowerCase().replace(/[.!,:;]+$/g, '')
+}
+
+function isPassGradeValue(value) {
+  return PASS_GRADE_VALUES.includes(normalizeGradeValue(value))
+}
+
+function isExemptGradeValue(value) {
+  return EXEMPT_GRADE_VALUES.includes(normalizeGradeValue(value))
+}
+
 function getGradeInfo(rawScore) {
   const s = parseFloat(rawScore)
   if (isNaN(s)) return { letter: 'сын', point: '' }
@@ -335,10 +350,12 @@ function parseExcel(arrayBuffer) {
       const cellVal  = meta.colIdx < row.length ? row[meta.colIdx] : null
       const rawText  = cellVal != null ? String(cellVal).trim() : ''
       const rawLower = rawText.toLowerCase()
-      let is_pass = false, letter = '', point = '', score = 0
+      let is_pass = false, is_exempt = false, letter = '', point = '', score = 0
 
-      if (['сын','сынақ','зачет','зачёт','pass','passed'].includes(rawLower)) {
+      if (isPassGradeValue(rawLower)) {
         is_pass = true; letter = 'сын'; point = ''
+      } else if (isExemptGradeValue(rawLower)) {
+        is_exempt = true; letter = 'анық'; point = ''
       } else {
         const n = parseFloat(rawText)
         score = isNaN(n) ? 0 : Math.round(n)
@@ -348,7 +365,7 @@ function parseExcel(arrayBuffer) {
       student.subjects_list.push({
         module: meta.module, name_kz: meta.name_kz,
         hours: meta.hours != null ? String(meta.hours) : '',
-        score: is_pass ? '' : score, letter, point, is_pass, raw_value: rawText,
+        score: is_pass || is_exempt ? '' : score, letter, point, is_pass, is_exempt, raw_value: rawText,
       })
     }
     students.push(student)
@@ -393,7 +410,7 @@ function calculateLayout(
   ]
   if (lang === 'ru') {
     areas[0].yStart -= 3.5 * MM; areas[1].yStart -= 1 * MM
-    areas[2].yStart += 0.5 * MM; areas[3].yStart += 1 * MM
+    areas[3].yStart += 1 * MM
     areas[0].yLimit += 2 * MM;   areas[1].yLimit += 2 * MM
   }
   if (lang === 'kz') {
@@ -455,15 +472,19 @@ function calculateLayout(
     const area      = areas[ai]
     const hoursStr  = String(subj.hours || '')
     const scoreStr  = String(subj.score || '')
-    const isPass    = !!subj.is_pass || subj.letter === 'сын'
+    const isExempt  = !!subj.is_exempt || isExemptGradeValue(subj.raw_value) || isExemptGradeValue(subj.letter)
+    const isPass    = !isExempt && (!!subj.is_pass || subj.letter === 'сын')
     const hNum      = parseInt(hoursStr, 10)
     const credits   = hNum > 0 ? String(Math.round(hNum / 24)) : ''
-    const trad      = isPass ? '' : getTraditionalGrade(scoreStr, lang)
-    const passLabel = lang === 'ru' ? 'Зачтено' : 'Сыналды'
+    const usesTraditionalLabel = isPass || isExempt
+    const trad      = usesTraditionalLabel ? '' : getTraditionalGrade(scoreStr, lang)
+    const passLabel = isExempt
+      ? (lang === 'ru' ? 'Освобож.' : 'Босатыл')
+      : (lang === 'ru' ? 'Зачтено' : 'Сыналды')
 
     items.push({
       type: 'subject', page: area.page, x: area.x + areaXOff(area), y: curY + areaYOff(area),
-      rowNum, lines, hoursStr, credits, scoreStr, isPass, passLabel,
+      rowNum, lines, hoursStr, credits, scoreStr, isPass: usesTraditionalLabel, passLabel,
       letter: subj.letter || '', point: subj.point || '', trad,
       columnX: columnXForArea(area),
       hoursOffX:   area.page === 2 ? 171.3 : 165.6,
@@ -1262,7 +1283,17 @@ function TabEditor({
       return {
         ...st,
         subjects_list: st.subjects_list.map((sb, j) =>
-          j === si ? { ...sb, score: val, letter: g.letter, point: g.point } : sb
+          j === si
+            ? {
+                ...sb,
+                score: val,
+                letter: isExemptGradeValue(val) ? 'анық' : g.letter,
+                point: isExemptGradeValue(val) ? '' : g.point,
+                is_pass: isPassGradeValue(val),
+                is_exempt: isExemptGradeValue(val),
+                raw_value: val,
+              }
+            : sb
         ),
       }
     }))
