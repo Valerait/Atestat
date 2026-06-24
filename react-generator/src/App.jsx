@@ -83,7 +83,7 @@ const cloneModuleOffsets = () => ({
   ru: { ...DEFAULT_MODULE_OFFSETS.ru },
 })
 
-const DEFAULT_GRADE_COLUMN_OFFSETS = {
+const BASE_GRADE_COLUMN_OFFSETS = {
   kz: createGradeColumnOffsetSet({
     page1Right_number: -0.5,
     page1Right_traditional: -0.7,
@@ -110,6 +110,11 @@ const DEFAULT_GRADE_COLUMN_OFFSETS = {
   }),
 }
 
+const DEFAULT_GRADE_COLUMN_OFFSETS = {
+  kz: createGradeColumnOffsetSet(),
+  ru: createGradeColumnOffsetSet(),
+}
+
 const cloneGradeColumnOffsets = () => ({
   kz: { ...DEFAULT_GRADE_COLUMN_OFFSETS.kz },
   ru: { ...DEFAULT_GRADE_COLUMN_OFFSETS.ru },
@@ -129,6 +134,39 @@ function mergeOffsetSettings(defaults, saved) {
   return merged
 }
 
+function shouldMigrateLegacyGradeColumnOffsets(saved, mode) {
+  if (mode === 'user-delta' || !saved || typeof saved !== 'object') return false
+  for (const lang of Object.keys(DEFAULT_GRADE_COLUMN_OFFSETS)) {
+    const savedLang = saved?.[lang]
+    if (!savedLang || typeof savedLang !== 'object') continue
+    for (const key of Object.keys(DEFAULT_GRADE_COLUMN_OFFSETS[lang])) {
+      const savedValue = Number(savedLang[key])
+      const baseValue = BASE_GRADE_COLUMN_OFFSETS[lang]?.[key] || 0
+      if (baseValue && Number.isFinite(savedValue) && Math.abs(savedValue - baseValue) < 0.0001) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function mergeGradeColumnOffsetSettings(saved, mode) {
+  const merged = mergeOffsetSettings(DEFAULT_GRADE_COLUMN_OFFSETS, saved)
+  if (!shouldMigrateLegacyGradeColumnOffsets(saved, mode)) return merged
+
+  const migrated = {}
+  for (const lang of Object.keys(DEFAULT_GRADE_COLUMN_OFFSETS)) {
+    migrated[lang] = { ...merged[lang] }
+    for (const key of Object.keys(DEFAULT_GRADE_COLUMN_OFFSETS[lang])) {
+      const savedValue = Number(saved?.[lang]?.[key])
+      if (!Number.isFinite(savedValue)) continue
+      const baseValue = BASE_GRADE_COLUMN_OFFSETS[lang]?.[key] || 0
+      migrated[lang][key] = Number((savedValue - baseValue).toFixed(4))
+    }
+  }
+  return migrated
+}
+
 function loadLayoutSettings() {
   const fallback = {
     positionOffsets: clonePositionOffsets(),
@@ -142,7 +180,7 @@ function loadLayoutSettings() {
     return {
       positionOffsets: mergeOffsetSettings(DEFAULT_POSITION_OFFSETS, saved?.positionOffsets),
       moduleOffsets: mergeOffsetSettings(DEFAULT_MODULE_OFFSETS, saved?.moduleOffsets),
-      gradeColumnOffsets: mergeOffsetSettings(DEFAULT_GRADE_COLUMN_OFFSETS, saved?.gradeColumnOffsets),
+      gradeColumnOffsets: mergeGradeColumnOffsetSettings(saved?.gradeColumnOffsets, saved?.gradeColumnOffsetMode),
     }
   } catch (_) {
     return fallback
@@ -153,7 +191,7 @@ function saveLayoutSettings(positionOffsets, moduleOffsets, gradeColumnOffsets) 
   if (typeof window === 'undefined') return false
   window.localStorage.setItem(
     LAYOUT_SETTINGS_STORAGE_KEY,
-    JSON.stringify({ positionOffsets, moduleOffsets, gradeColumnOffsets }),
+    JSON.stringify({ positionOffsets, moduleOffsets, gradeColumnOffsets, gradeColumnOffsetMode: 'user-delta' }),
   )
   return true
 }
@@ -376,9 +414,13 @@ function calculateLayout(
   }
   const areaYOff = (area) => baseAreaYOff(area) + (moduleOffsets[lang]?.[area.offsetKey] || 0) * MM
   const areaXOff = (area) => (moduleOffsets[lang]?.[`${area.offsetKey}_x`] || 0) * MM
+  const baseGradeOffsets = BASE_GRADE_COLUMN_OFFSETS[lang] || DEFAULT_GRADE_COLUMN_OFFSETS[lang]
   const gradeOffsets = gradeColumnOffsets[lang] || DEFAULT_GRADE_COLUMN_OFFSETS[lang]
   const columnXForArea = (area) => Object.fromEntries(
-    GRADE_COLUMN_FIELDS.map(([key]) => [key, (gradeOffsets[`${area.offsetKey}_${key}`] || 0) * MM]),
+    GRADE_COLUMN_FIELDS.map(([key]) => {
+      const offsetKey = `${area.offsetKey}_${key}`
+      return [key, ((baseGradeOffsets[offsetKey] || 0) + (gradeOffsets[offsetKey] || 0)) * MM]
+    }),
   )
 
   for (const subj of student.subjects_list) {
