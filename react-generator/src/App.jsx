@@ -393,7 +393,7 @@ function calculateLayout(
     const hNum      = parseInt(hoursStr, 10)
     const credits   = hNum > 0 ? String(Math.round(hNum / 24)) : ''
     const trad      = isPass ? '' : getTraditionalGrade(scoreStr, lang)
-    const passLabel = lang === 'ru' ? 'зачтено' : 'сыналды'
+    const passLabel = lang === 'ru' ? 'Зачтено' : 'Сыналды'
 
     items.push({
       type: 'subject', page: area.page, x: area.x + areaXOff(area), y: curY + areaYOff(area),
