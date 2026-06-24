@@ -479,7 +479,7 @@ function calculateLayout(
     const usesTraditionalLabel = isPass || isExempt
     const trad      = usesTraditionalLabel ? '' : getTraditionalGrade(scoreStr, lang)
     const passLabel = isExempt
-      ? (lang === 'ru' ? 'Освобож.' : 'Босатыл')
+      ? (lang === 'ru' ? 'Освобож.' : 'Босатыл.')
       : (lang === 'ru' ? 'Зачтено' : 'Сыналды')
 
     items.push({
