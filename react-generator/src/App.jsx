@@ -48,12 +48,14 @@ const GRADE_COLUMN_FIELDS = [
 const createPositionOffsetSet = () =>
   Object.fromEntries(POSITION_FIELDS.flatMap(([key]) => [[key, 0], [`${key}_x`, 0]]))
 
-const createGradeColumnOffsetSet = () =>
-  Object.fromEntries(
+const createGradeColumnOffsetSet = (overrides = {}) => ({
+  ...Object.fromEntries(
     PAGE_AREA_FIELDS.flatMap(([areaKey]) =>
       GRADE_COLUMN_FIELDS.map(([fieldKey]) => [`${areaKey}_${fieldKey}`, 0]),
     ),
-  )
+  ),
+  ...overrides,
+})
 
 const DEFAULT_POSITION_OFFSETS = {
   kz: createPositionOffsetSet(),
@@ -82,8 +84,30 @@ const cloneModuleOffsets = () => ({
 })
 
 const DEFAULT_GRADE_COLUMN_OFFSETS = {
-  kz: createGradeColumnOffsetSet(),
-  ru: createGradeColumnOffsetSet(),
+  kz: createGradeColumnOffsetSet({
+    page1Right_number: -0.5,
+    page1Right_traditional: -0.7,
+    page2Left_letter: 1,
+    page2Left_points: 0.6,
+    page2Right_number: -0.8,
+    page2Right_moduleSubject: -1.2,
+    page2Right_percent: -1,
+    page2Right_letter: 0.7,
+    page2Right_traditional: -1,
+  }),
+  ru: createGradeColumnOffsetSet({
+    page1Right_number: -0.5,
+    page1Right_traditional: -0.7,
+    page2Left_hours: -0.8,
+    page2Left_credits: -0.2,
+    page2Left_letter: 1,
+    page2Left_points: 0.6,
+    page2Right_number: -0.8,
+    page2Right_moduleSubject: -1.2,
+    page2Right_percent: -1,
+    page2Right_letter: 0.7,
+    page2Right_traditional: -1,
+  }),
 }
 
 const cloneGradeColumnOffsets = () => ({
